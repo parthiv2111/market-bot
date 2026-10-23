@@ -56,3 +56,6 @@ isolated integration tests.
 See [data sources and access constraints](docs/data-sources.md) before implementing
 providers. NSE website automation is not approved; use authorized local files
 and synthetic fixtures while source eligibility and coverage remain unresolved.
+
+[Instrument identity and supplied calendars](docs/reference-data.md) provide
+versioned aliases and explicit Asia/Kolkata sessions without inventing missing history.
