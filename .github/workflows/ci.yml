@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.10.7"
+          python-version: "3.12"
+      - run: uv sync --locked
+      - run: uv run --locked --offline ruff check .
+      - run: uv run --locked --offline ruff format --check .
+      - run: uv run --locked --offline mypy
+      - run: uv run --locked --offline python scripts/check_negative_controls.py
+
+  offline-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.10.7"
+          python-version: "3.12"
+      - run: uv sync --locked
+      - run: uv run --locked --offline pytest --junitxml=artifacts/pytest.xml

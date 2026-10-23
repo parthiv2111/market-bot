@@ -43,3 +43,6 @@ To verify a fresh installation, remove/recreate only your disposable virtual
 environment or set `UV_PROJECT_ENVIRONMENT` to a new empty directory and repeat
 the locked sync and checks. Runtime PostgreSQL setup and validated configuration
 are delivered in their respective backlog issues.
+
+See [CI checks and maintainer setup](docs/testing/ci.md) for required status checks,
+offline-test policy and deliberate-failure verification.
