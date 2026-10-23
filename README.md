@@ -32,7 +32,7 @@ uv run --locked uvicorn prediction_bot.api.app:create_app --factory
 The first sync can download Python and packages; subsequent tests run offline.
 Visit `http://127.0.0.1:8000/health` after starting the API. This endpoint reports
 process health, not database readiness or permission to trade. The only CLI
-command is `health`. Live orders are unavailable, regardless of environment
+commands are `health` and `validate-config PATH`. Live orders are unavailable, regardless of environment
 variables. `.env.example` documents future settings; it is not loaded yet.
 
 Keep local secrets in ignored `.env` files and datasets in `data/` or `datasets/`.
@@ -46,3 +46,6 @@ are delivered in their respective backlog issues.
 
 See [CI checks and maintainer setup](docs/testing/ci.md) for required status checks,
 offline-test policy and deliberate-failure verification.
+
+See [validated settings and immutable policies](docs/settings.md). Validate the
+research example with `uv run --locked prediction-bot validate-config config/research.example.json`.

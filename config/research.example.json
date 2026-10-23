@@ -1,0 +1,15 @@
+{
+  "mode": "paper",
+  "provider": "local_csv",
+  "strategy": "daily_five_session",
+  "risk": {
+    "per_trade_risk_pct": 0.25,
+    "portfolio_heat_pct": 0.75,
+    "daily_loss_limit_pct": 1.0,
+    "weekly_loss_limit_pct": 2.5,
+    "monthly_loss_limit_pct": 5.0,
+    "drawdown_stop_pct": 6.0,
+    "profit_protect_pct": 5.0,
+    "exceptions_enabled": false
+  }
+}
