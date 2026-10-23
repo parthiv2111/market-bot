@@ -49,3 +49,6 @@ offline-test policy and deliberate-failure verification.
 
 See [validated settings and immutable policies](docs/settings.md). Validate the
 research example with `uv run --locked prediction-bot validate-config config/research.example.json`.
+
+See [PostgreSQL setup and migrations](docs/database.md) for local services and
+isolated integration tests.

@@ -42,3 +42,31 @@ jobs:
           python-version: "3.12"
       - run: uv sync --locked
       - run: uv run --locked --offline pytest --junitxml=artifacts/pytest.xml
+
+  postgres-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: prediction_bot
+          POSTGRES_PASSWORD: local-test-only
+          POSTGRES_DB: prediction_bot_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U prediction_bot -d prediction_bot_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PREDICTION_BOT_TEST_DATABASE_URL: postgresql+psycopg://prediction_bot:local-test-only@localhost:5432/prediction_bot_test
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.10.7"
+          python-version: "3.12"
+      - run: uv sync --locked
+      - run: uv run --locked --offline pytest -m postgres
