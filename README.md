@@ -52,3 +52,7 @@ research example with `uv run --locked prediction-bot validate-config config/res
 
 See [PostgreSQL setup and migrations](docs/database.md) for local services and
 isolated integration tests.
+
+See [data sources and access constraints](docs/data-sources.md) before implementing
+providers. NSE website automation is not approved; use authorized local files
+and synthetic fixtures while source eligibility and coverage remain unresolved.
