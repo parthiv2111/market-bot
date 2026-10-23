@@ -8,7 +8,7 @@ from prediction_bot import __version__
 class HealthStatus(TypedDict):
     status: Literal["ok"]
     version: str
-    mode: Literal["research"]
+    mode: Literal["paper"]
     live_orders_enabled: Literal[False]
 
 
@@ -16,6 +16,6 @@ def health_status() -> HealthStatus:
     return {
         "status": "ok",
         "version": __version__,
-        "mode": "research",
+        "mode": "paper",
         "live_orders_enabled": False,
     }

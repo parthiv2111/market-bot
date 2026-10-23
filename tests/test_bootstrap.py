@@ -20,7 +20,7 @@ def test_cli_health_from_outside_repository(tmp_path):
     assert json.loads(result.stdout) == {
         "status": "ok",
         "version": "0.1.0",
-        "mode": "research",
+        "mode": "paper",
         "live_orders_enabled": False,
     }
 
