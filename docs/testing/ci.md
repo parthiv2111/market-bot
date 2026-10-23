@@ -1,7 +1,7 @@
 # Required CI checks
 
 Require `quality` and `offline-tests (ubuntu-latest)` and
-`offline-tests (windows-latest)` in the main branch protection rule or ruleset.
+`offline-tests (windows-latest)` and `postgres-tests` in the main branch protection rule or ruleset.
 Maintain these exact job names when editing the workflow. GitHub branch
 protection is repository administration; adding this file alone does not enable
 merge protection. Maintainers must select the checks after their first run.

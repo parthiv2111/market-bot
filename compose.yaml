@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: prediction_bot
+      POSTGRES_PASSWORD: ${PREDICTION_BOT_DB_PASSWORD:?Set a local database password}
+      POSTGRES_DB: prediction_bot
+      TZ: UTC
+      PGTZ: UTC
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - prediction_bot_pg:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prediction_bot -d prediction_bot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  postgres-test:
+    image: postgres:18
+    profiles: [test]
+    environment:
+      POSTGRES_USER: prediction_bot
+      POSTGRES_PASSWORD: local-test-only
+      POSTGRES_DB: prediction_bot_test
+      TZ: UTC
+      PGTZ: UTC
+    ports:
+      - "127.0.0.1:55432:5432"
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prediction_bot -d prediction_bot_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+volumes:
+  prediction_bot_pg:
