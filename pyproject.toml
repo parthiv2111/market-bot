@@ -24,6 +24,9 @@ dependencies = [
 [project.scripts]
 prediction-bot = "prediction_bot.cli:main"
 
+[project.optional-dependencies]
+yahoo = ["yfinance>=0.2.54,<2"]
+
 [dependency-groups]
 dev = ["pytest>=8.3,<9", "ruff>=0.9,<1", "mypy>=1.14,<2", "httpx>=0.28,<1"]
 
