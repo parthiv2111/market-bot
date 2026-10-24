@@ -62,3 +62,6 @@ versioned aliases and explicit Asia/Kolkata sessions without inventing missing h
 
 The [daily provider interface and CSV importer](docs/providers.md) load authorized
 local files with provenance, raw/adjusted prices and explicit coverage metadata.
+
+[NSE UDiFF report import](docs/nse-reports.md) supports authorized local cash-market
+reports and preserves the original file, source date, series and parser version.
