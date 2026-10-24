@@ -65,3 +65,6 @@ local files with provenance, raw/adjusted prices and explicit coverage metadata.
 
 [NSE UDiFF report import](docs/nse-reports.md) supports authorized local cash-market
 reports and preserves the original file, source date, series and parser version.
+
+An [optional yfinance research adapter](docs/yahoo-provider.md) supports explicit
+NSE mapping, adjustment semantics and caching; it is disabled by default.
