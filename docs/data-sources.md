@@ -5,6 +5,10 @@ an implementation route, not a licence grant or live-market-data entitlement.
 No historical price files were collected during this review; observed coverage
 is **unavailable** until an authorized file is imported and validated.
 
+Update 2026-10-24: the linked official format workbook was retrieved and inspected
+for PB-09. [Verified mappings and supported subset](nse-reports.md) supersede the
+raw-header verification gap below. Historical coverage remains unverified.
+
 ## Inventory
 
 | Source | Fields and format | Coverage and freshness | Decision |
