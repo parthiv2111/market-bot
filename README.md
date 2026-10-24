@@ -59,3 +59,6 @@ and synthetic fixtures while source eligibility and coverage remain unresolved.
 
 [Instrument identity and supplied calendars](docs/reference-data.md) provide
 versioned aliases and explicit Asia/Kolkata sessions without inventing missing history.
+
+The [daily provider interface and CSV importer](docs/providers.md) load authorized
+local files with provenance, raw/adjusted prices and explicit coverage metadata.
