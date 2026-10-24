@@ -18,12 +18,16 @@ from prediction_bot.providers import FetchRequest
 
 store = QualityStore(Path("data/quality"))
 request = FetchRequest(
-    ("SYNTH",), date(2026, 1, 2), date(2026, 1, 5),
+    ("SYNTH",),
+    date(2026, 1, 2),
+    date(2026, 1, 5),
     expected_sessions=(date(2026, 1, 2), date(2026, 1, 5)),
 )
 batch = store.import_csv(
-    Path("data/permitted.csv").read_bytes(), request,
-    known_at=datetime(2026, 1, 6, tzinfo=UTC), usage_basis="user-supplied permission",
+    Path("data/permitted.csv").read_bytes(),
+    request,
+    known_at=datetime(2026, 1, 6, tzinfo=UTC),
+    usage_basis="user-supplied permission",
 )
 series = store.research_series(batch, (), as_of=datetime(2026, 1, 6, tzinfo=UTC))
 ```
