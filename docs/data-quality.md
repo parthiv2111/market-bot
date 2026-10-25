@@ -6,8 +6,9 @@ diagnostics under `validation/`, supplied action records under `actions/`, and
 derived research snapshots under `research/`. All files have content-addressed
 names and are published atomically without overwriting existing content.
 Repeating an identical import with identical metadata returns the same report.
-Database ingestion and reconciliation across distinct provider files follow in
-PB-12; these files do not write to the candle table.
+The [ingestion jobs](ingestion.md) consume validated batches and write raw candles
+transactionally, rejecting conflicting deliveries. The quality store itself does
+not write to the candle table.
 
 ```python
 from datetime import UTC, date, datetime
