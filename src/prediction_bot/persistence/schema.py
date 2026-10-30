@@ -85,3 +85,15 @@ policy_versions = Table(
     Column("payload", JSON, nullable=False),
     Column("created_at", UTCDateTime(), nullable=False),
 )
+
+ledger_accounts = Table("ledger_accounts", metadata, Column("id", String(128), primary_key=True))
+ledger_events = Table(
+    "ledger_events",
+    metadata,
+    Column("account_id", ForeignKey("ledger_accounts.id"), primary_key=True),
+    Column("event_id", String(128), primary_key=True),
+    Column("sequence", Integer, nullable=False),
+    Column("payload", JSON, nullable=False),
+    UniqueConstraint("account_id", "sequence", name="uq_ledger_sequence"),
+    CheckConstraint("sequence > 0", name="ck_ledger_sequence"),
+)
