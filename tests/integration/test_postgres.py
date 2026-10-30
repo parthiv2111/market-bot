@@ -33,6 +33,101 @@ from prediction_bot.providers import FetchRequest
 pytestmark = pytest.mark.postgres
 
 
+def test_session_state_survives_restart_funding_and_retries(database):
+    from prediction_bot.persistence.schema import session_snapshots
+    from prediction_bot.reference_data import ExchangeDay, ReferenceBundle
+    from prediction_bot.session_accounting import (
+        EquityObservation,
+        persist_observation,
+        read_session,
+    )
+
+    connection, config = database
+    command.upgrade(config, "head")
+    now = datetime(2026, 1, 26, 4, tzinfo=UTC)
+    reference = ReferenceBundle(
+        source="synthetic",
+        published_at=now,
+        coverage_start=now.date(),
+        coverage_end=(now + timedelta(days=1)).date(),
+        aliases=(),
+        days=tuple(
+            ExchangeDay(
+                session_date=(now + timedelta(days=i)).date(),
+                status="open",
+                reason="fixture",
+                opens_at=now + timedelta(days=i),
+                closes_at=now + timedelta(days=i, hours=6),
+            )
+            for i in range(2)
+        ),
+    )
+    opening = EquityObservation(
+        observation_id="open",
+        observed_at=now,
+        equity="1000",
+        cumulative_external_flows="1000",
+        fresh_marks=True,
+        reconciled=True,
+        session_open=True,
+    )
+    persist_observation(connection, "account", opening, reference)
+    loss = opening.model_copy(
+        update={
+            "observation_id": "loss",
+            "observed_at": now + timedelta(hours=1),
+            "session_open": False,
+            "equity": Decimal(900),
+            "new_entries": 1,
+            "campaign_result": "loss",
+            "latch_reasons": ("weekly_stop",),
+        }
+    )
+    expected = persist_observation(connection, "account", loss, reference)
+    connection.commit()
+    assert read_session(connection, "account") == expected
+    assert persist_observation(connection, "account", loss, reference) == expected
+    connection.commit()
+    assert len(connection.execute(select(session_snapshots)).all()) == 2
+    connection.commit()
+    with pytest.raises(ValueError, match="Conflicting"), connection.begin():
+        persist_observation(
+            connection, "account", loss.model_copy(update={"new_entries": 2}), reference
+        )
+    funding = loss.model_copy(
+        update={
+            "observation_id": "fund",
+            "observed_at": now + timedelta(hours=2),
+            "equity": Decimal(1900),
+            "cumulative_external_flows": Decimal(2000),
+            "new_entries": 0,
+            "campaign_result": "none",
+            "latch_reasons": (),
+        }
+    )
+    funded = persist_observation(connection, "account", funding, reference)
+    connection.commit()
+    assert funded.drawdown == expected.drawdown
+    assert funded.weekly_pnl == expected.weekly_pnl == -100
+    assert funded.session_entries == funded.consecutive_losses == 1
+    tomorrow = funding.model_copy(
+        update={
+            "observation_id": "next-open",
+            "observed_at": now + timedelta(days=1),
+            "session_open": True,
+        }
+    )
+    next_state = persist_observation(connection, "account", tomorrow, reference)
+    connection.commit()
+    assert read_session(connection, "account") == next_state
+    assert next_state.e0 == 1900 and next_state.week_e0 == 1000
+    assert "weekly_stop" in next_state.latch_reasons
+    assert next_state.session_entries == 0 and next_state.consecutive_losses == 1
+    connection.commit()
+    with pytest.raises(DBAPIError), connection.begin():
+        connection.execute(session_snapshots.delete())
+
+
 def test_ledger_persistence_idempotency_and_rollback(database):
     from prediction_bot.ledger import LedgerEvent, ingest_event, read_ledger
     from prediction_bot.persistence.schema import ledger_events
@@ -123,7 +218,7 @@ def test_empty_migration_and_data_preserving_upgrade(database):
     command.upgrade(config, "head")
     command.upgrade(config, "head")  # Re-running migration is idempotent.
     assert connection.scalar(select(instruments.c.symbol)) == "SYNTHETIC"
-    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0003"
+    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0004"
     assert compare_metadata(MigrationContext.configure(connection), metadata) == []
 
 
