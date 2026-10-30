@@ -19,8 +19,7 @@ from prediction_bot.strategy import Proposal
 NOW = datetime(2026, 1, 26, 5, tzinfo=UTC)
 
 
-@pytest.fixture
-def inputs():
+def build_inputs():
     session = SessionState(
         observed_at=NOW,
         session_date=NOW.date(),
@@ -95,6 +94,11 @@ def inputs():
         max_age_seconds=60,
     )
     return proposal, session, portfolio, terms, policy
+
+
+@pytest.fixture
+def inputs():
+    return build_inputs()
 
 
 def exposure(**changes):

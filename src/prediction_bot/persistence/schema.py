@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     CheckConstraint,
     Column,
     Date,
@@ -109,4 +110,23 @@ session_snapshots = Table(
     Column("state", JSON, nullable=False),
     UniqueConstraint("account_id", "sequence", name="uq_session_sequence"),
     CheckConstraint("sequence > 0", name="ck_session_sequence"),
+)
+
+risk_capacity = Table(
+    "risk_capacity",
+    metadata,
+    Column("account_id", ForeignKey("ledger_accounts.id"), primary_key=True),
+    Column("payload", JSON, nullable=False),
+    Column("valid", Boolean, nullable=False),
+)
+risk_reservations = Table(
+    "risk_reservations",
+    metadata,
+    Column("account_id", ForeignKey("ledger_accounts.id"), primary_key=True),
+    Column("reservation_id", String(128), primary_key=True),
+    Column("fingerprint", String(64), nullable=False),
+    Column("status", String(16), nullable=False),
+    Column("payload", JSON, nullable=False),
+    Column("terminal_evidence", JSON),
+    CheckConstraint("status IN ('active', 'released')", name="ck_reservation_status"),
 )

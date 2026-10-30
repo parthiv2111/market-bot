@@ -33,6 +33,147 @@ from prediction_bot.providers import FetchRequest
 pytestmark = pytest.mark.postgres
 
 
+@pytest.mark.parametrize("limiting", ["risk", "cash"])
+def test_concurrent_reservations_and_confirmed_release(database, limiting):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    from test_reservations import stress_inputs
+    from test_sizing import NOW, build_inputs
+
+    from prediction_bot.persistence.schema import risk_reservations, session_snapshots
+    from prediction_bot.reservations import TerminalConfirmation, publish_capacity, release, reserve
+
+    connection, config = database
+    command.upgrade(config, "head")
+    proposal, session, portfolio, terms, policy = build_inputs()
+    assumption, stress_policy = stress_inputs()
+    portfolio = portfolio.model_copy(
+        update={
+            "remaining_risk_budget": Decimal(2500 if limiting == "risk" else 7500),
+            "cash": Decimal(100100 if limiting == "cash" else 1000000),
+        }
+    )
+    policy = policy.model_copy(
+        update={"symbol_pct": Decimal(100), "sector_pct": Decimal(100), "group_pct": Decimal(100)}
+    )
+    from prediction_bot.persistence.schema import ledger_accounts
+
+    connection.execute(ledger_accounts.insert().values(id="account"))
+    connection.execute(
+        session_snapshots.insert().values(
+            account_id="account",
+            observation_id="open",
+            sequence=1,
+            fingerprint="fixture",
+            observation={},
+            state=session.model_dump(mode="json"),
+        )
+    )
+    publish_capacity(connection, "account", portfolio, {"A": assumption}, policy, stress_policy)
+    schema = connection.scalar(text("SELECT current_schema()"))
+    connection.commit()
+    barrier = Barrier(3)
+
+    def worker(index):
+        with connection.engine.connect() as worker_connection:
+            worker_connection.execute(text(f'SET search_path TO "{schema}"'))
+            worker_connection.commit()
+            barrier.wait(timeout=15)
+            with worker_connection.begin():
+                result = reserve(worker_connection, "account", str(index), proposal, terms, now=NOW)
+            return str(index), result
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        results = list(pool.map(worker, range(3)))
+    winners = [
+        (identifier, result) for identifier, result in results if result.status == "reserved"
+    ]
+    assert len(winners) == 1
+    identifier, result = winners[0]
+    assert result.quantity == 100
+    assert reserve(connection, "account", identifier, proposal, terms, now=NOW) == result
+    assert len(connection.execute(select(risk_reservations)).all()) == 1
+    connection.commit()
+    with pytest.raises(ValueError, match="Conflicting"), connection.begin():
+        reserve(
+            connection,
+            "account",
+            identifier,
+            proposal,
+            terms.model_copy(update={"liquidity_quantity": 1}),
+            now=NOW,
+        )
+    with pytest.raises(ValueError, match="active reservations"), connection.begin():
+        publish_capacity(connection, "account", portfolio, {"A": assumption}, policy, stress_policy)
+    confirmation = TerminalConfirmation(
+        state="cancelled", confirmed=True, filled_quantity=0, evidence_reference="paper cancel ack"
+    )
+    release(connection, "account", identifier, confirmation)
+    release(connection, "account", identifier, confirmation)
+    assert reserve(connection, "account", identifier, proposal, terms, now=NOW).status == "released"
+    assert (
+        reserve(connection, "account", "replacement", proposal, terms, now=NOW).status == "reserved"
+    )
+    connection.commit()
+    # Partial-fill cancellation requires inventory reconciliation before capacity reuse.
+    release(
+        connection,
+        "account",
+        "replacement",
+        TerminalConfirmation(
+            state="cancelled",
+            confirmed=True,
+            filled_quantity=10,
+            evidence_reference="partial cancel ack",
+        ),
+    )
+    connection.commit()
+    assert reserve(connection, "account", "after-fill", proposal, terms, now=NOW).reasons == (
+        "capacity_reconciliation_required",
+    )
+
+
+def test_reservation_stress_rejection_and_transaction_rollback(database):
+    from test_reservations import stress_inputs
+    from test_sizing import NOW, build_inputs
+
+    from prediction_bot.persistence.schema import (
+        ledger_accounts,
+        risk_reservations,
+        session_snapshots,
+    )
+    from prediction_bot.reservations import publish_capacity, reserve
+
+    connection, config = database
+    command.upgrade(config, "head")
+    proposal, session, portfolio, terms, policy = build_inputs()
+    assumption, stress_policy = stress_inputs()
+    connection.execute(ledger_accounts.insert().values(id="account"))
+    connection.execute(
+        session_snapshots.insert().values(
+            account_id="account",
+            observation_id="open",
+            sequence=1,
+            fingerprint="fixture",
+            observation={},
+            state=session.model_dump(mode="json"),
+        )
+    )
+    stressed = assumption.model_copy(update={"atr": Decimal(100)})
+    publish_capacity(connection, "account", portfolio, {"A": stressed}, policy, stress_policy)
+    connection.commit()
+    result = reserve(connection, "account", "stress", proposal, terms, now=NOW)
+    assert result.reasons == ("correlated_stress_limit",)
+    assert connection.execute(select(risk_reservations)).first() is None
+    connection.commit()
+    publish_capacity(connection, "account", portfolio, {"A": assumption}, policy, stress_policy)
+    connection.commit()
+    assert reserve(connection, "account", "rollback", proposal, terms, now=NOW).status == "reserved"
+    connection.rollback()
+    assert connection.execute(select(risk_reservations)).first() is None
+
+
 def test_session_state_survives_restart_funding_and_retries(database):
     from prediction_bot.persistence.schema import session_snapshots
     from prediction_bot.reference_data import ExchangeDay, ReferenceBundle
@@ -218,7 +359,7 @@ def test_empty_migration_and_data_preserving_upgrade(database):
     command.upgrade(config, "head")
     command.upgrade(config, "head")  # Re-running migration is idempotent.
     assert connection.scalar(select(instruments.c.symbol)) == "SYNTHETIC"
-    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0004"
+    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0005"
     assert compare_metadata(MigrationContext.configure(connection), metadata) == []
 
 
