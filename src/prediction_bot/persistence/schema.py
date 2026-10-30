@@ -97,3 +97,16 @@ ledger_events = Table(
     UniqueConstraint("account_id", "sequence", name="uq_ledger_sequence"),
     CheckConstraint("sequence > 0", name="ck_ledger_sequence"),
 )
+
+session_snapshots = Table(
+    "session_snapshots",
+    metadata,
+    Column("account_id", ForeignKey("ledger_accounts.id"), primary_key=True),
+    Column("observation_id", String(128), primary_key=True),
+    Column("sequence", Integer, nullable=False),
+    Column("fingerprint", String(64), nullable=False),
+    Column("observation", JSON, nullable=False),
+    Column("state", JSON, nullable=False),
+    UniqueConstraint("account_id", "sequence", name="uq_session_sequence"),
+    CheckConstraint("sequence > 0", name="ck_session_sequence"),
+)
