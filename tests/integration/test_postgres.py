@@ -33,6 +33,57 @@ from prediction_bot.providers import FetchRequest
 pytestmark = pytest.mark.postgres
 
 
+def test_ledger_persistence_idempotency_and_rollback(database):
+    from prediction_bot.ledger import LedgerEvent, ingest_event, read_ledger
+    from prediction_bot.persistence.schema import ledger_events
+
+    connection, config = database
+    command.upgrade(config, "head")
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    deposit = LedgerEvent(
+        event_id="deposit", occurred_at=now, kind="deposit", source="manual", amount="1000"
+    )
+    fill = LedgerEvent(
+        event_id="fill",
+        occurred_at=now,
+        kind="buy",
+        source="manual",
+        instrument_id="A",
+        quantity=3,
+        price="100",
+        fee="1",
+    )
+    ingest_event(connection, "account", deposit)
+    expected = ingest_event(connection, "account", fill)
+    connection.commit()
+    assert ingest_event(connection, "account", fill) == expected
+    connection.commit()
+    assert read_ledger(connection, "account") == expected
+    assert len(connection.execute(select(ledger_events)).all()) == 2
+    connection.commit()
+    with pytest.raises(ValueError, match="Conflicting"), connection.begin():
+        ingest_event(connection, "account", fill.model_copy(update={"price": Decimal(101)}))
+    with pytest.raises(ValueError, match="inventory"), connection.begin():
+        ingest_event(
+            connection,
+            "account",
+            fill.model_copy(update={"event_id": "oversell", "kind": "sell", "quantity": 4}),
+        )
+    assert read_ledger(connection, "account") == expected
+    connection.commit()
+    # A valid event is not durable until its caller commits.
+    ingest_event(connection, "account", fill.model_copy(update={"event_id": "rolled-back"}))
+    connection.rollback()
+    assert read_ledger(connection, "account") == expected
+    connection.commit()
+    for statement in (ledger_events.update().values(sequence=10), ledger_events.delete()):
+        with pytest.raises(DBAPIError), connection.begin():
+            connection.execute(statement)
+    assert ingest_event(connection, "other-account", deposit).cash == 1000
+    connection.commit()
+    assert read_ledger(connection, "account") == expected
+
+
 @pytest.fixture
 def database():
     url = os.environ.get("PREDICTION_BOT_TEST_DATABASE_URL")
@@ -72,7 +123,7 @@ def test_empty_migration_and_data_preserving_upgrade(database):
     command.upgrade(config, "head")
     command.upgrade(config, "head")  # Re-running migration is idempotent.
     assert connection.scalar(select(instruments.c.symbol)) == "SYNTHETIC"
-    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0002"
+    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0003"
     assert compare_metadata(MigrationContext.configure(connection), metadata) == []
 
 
