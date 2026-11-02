@@ -18,6 +18,7 @@ Percent = Annotated[Decimal, Field(gt=0, le=100, allow_inf_nan=False)]
 
 
 class SizingPolicy(FrozenModel):
+    daily_loss_limit_pct: Percent = Field(max_digits=13, decimal_places=10)
     per_trade_risk_pct: Percent
     symbol_pct: Percent
     sector_pct: Percent
@@ -217,7 +218,13 @@ def size_entry(
             Decimal(0),
         )
         budget = min(
-            session.e0 * policy.per_trade_risk_pct / 100, portfolio.remaining_risk_budget - heat
+            session.e0 * policy.per_trade_risk_pct / 100,
+            portfolio.remaining_risk_budget - heat,
+            max(
+                Decimal(0),
+                session.e0 * policy.daily_loss_limit_pct / 100 + min(session.daily_pnl, Decimal(0)),
+            )
+            - heat,
         )
         capacity = min(capacities)
         if min(cash, budget, capacity) <= 0:

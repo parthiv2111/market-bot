@@ -11,6 +11,8 @@ from pydantic import Field
 from sqlalchemy import Connection, func, select
 from sqlalchemy.dialects.postgresql import insert
 
+from prediction_bot.daily_breaker import bind_daily_limit, evaluate_daily_loss
+from prediction_bot.data_quality import _aware
 from prediction_bot.persistence.schema import (
     ledger_accounts,
     ledger_events,
@@ -148,6 +150,7 @@ def publish_capacity(
     session = read_session(connection, account_id)
     if session is None or session.observed_at != portfolio.observed_at or not portfolio.reconciled:
         raise ValueError("Matching reconciled session snapshot required")
+    bind_daily_limit(connection, account_id, session, sizing_policy.daily_loss_limit_pct)
     stress_report(portfolio.exposures, assumptions, stress_policy, session.e0)
     payload = dict(
         portfolio=portfolio.model_dump(mode="json"),
@@ -163,6 +166,7 @@ def publish_capacity(
             index_elements=[risk_capacity.c.account_id], set_={"payload": payload, "valid": True}
         )
     )
+    evaluate_daily_loss(connection, account_id, session)
 
 
 class ReservationResult(FrozenModel):
@@ -185,6 +189,11 @@ def reserve(
     _lock(connection, account_id)
     if not reservation_id or len(reservation_id) > 128:
         raise ValueError("Invalid reservation identity")
+    latest = read_session(connection, account_id)
+    if latest is None or not evaluate_daily_loss(connection, account_id, latest):
+        return ReservationResult(
+            status="rejected", quantity=0, reasons=("daily_stop_or_missing_policy",)
+        )
     fingerprint = hashlib.sha256(
         json.dumps(
             {"proposal": asdict(proposal), "terms": terms.model_dump(mode="json")},
@@ -287,6 +296,7 @@ def reserve(
             fingerprint=fingerprint,
             status="active",
             payload={
+                "expires_at": proposal.expires_at.isoformat() if proposal.expires_at else None,
                 "result": result.model_dump(mode="json"),
                 "exposure": candidate.model_dump(mode="json"),
                 "buy_cost": str(buy_cost),
@@ -303,6 +313,54 @@ def reserve(
         )
     )
     return result
+
+
+def entry_dispatch_allowed(
+    connection: Connection, account_id: str, reservation_id: str, *, now: datetime
+) -> bool:
+    """Queued paper entries must recheck immediately under the account lock."""
+    _aware(now)
+    _lock(connection, account_id)
+    session = read_session(connection, account_id)
+    if (
+        session is None
+        or not evaluate_daily_loss(connection, account_id, session)
+        or session.latch_reasons
+    ):
+        return False
+    capacity = (
+        connection.execute(select(risk_capacity).where(risk_capacity.c.account_id == account_id))
+        .mappings()
+        .first()
+    )
+    reservation = (
+        connection.execute(
+            select(risk_reservations).where(
+                risk_reservations.c.account_id == account_id,
+                risk_reservations.c.reservation_id == reservation_id,
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if (
+        not capacity
+        or not capacity["valid"]
+        or not reservation
+        or reservation["status"] != "active"
+    ):
+        return False
+    payload = capacity["payload"]
+    expiry = reservation["payload"].get("expires_at")
+    if not expiry or now >= datetime.fromisoformat(expiry):
+        return False
+    return bool(
+        payload["session"] == session.model_dump(mode="json")
+        and payload["ledger_revision"] == _ledger_revision(connection, account_id)
+        and 0
+        <= (now - session.observed_at).total_seconds()
+        <= payload["sizing_policy"]["max_age_seconds"]
+    )
 
 
 class TerminalConfirmation(FrozenModel):
