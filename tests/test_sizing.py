@@ -85,6 +85,7 @@ def build_inputs():
         ),
     )
     policy = SizingPolicy(
+        daily_loss_limit_pct=1,
         per_trade_risk_pct="0.25",
         symbol_pct=10,
         sector_pct=25,

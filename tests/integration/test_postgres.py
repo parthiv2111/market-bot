@@ -33,6 +33,132 @@ from prediction_bot.providers import FetchRequest
 pytestmark = pytest.mark.postgres
 
 
+@pytest.mark.parametrize(
+    "loss,triggered,overshoot",
+    [(999, False, 0), (1000, True, 0), (1250, True, 250), (1100, True, 100)],
+)
+def test_daily_stop_persistence_queue_and_intents(database, loss, triggered, overshoot):
+    from test_reservations import stress_inputs
+    from test_sizing import NOW, build_inputs
+
+    from prediction_bot.daily_breaker import bind_daily_limit
+    from prediction_bot.persistence.schema import (
+        daily_controls,
+        ledger_accounts,
+        session_snapshots,
+        stop_intents,
+    )
+    from prediction_bot.reference_data import ExchangeDay, ReferenceBundle
+    from prediction_bot.reservations import entry_dispatch_allowed, publish_capacity, reserve
+    from prediction_bot.session_accounting import EquityObservation, persist_observation
+
+    connection, config = database
+    command.upgrade(config, "head")
+    proposal, session, portfolio, terms, policy = build_inputs()
+    assumption, stress_policy = stress_inputs()
+    session = session.model_copy(
+        update={
+            key: Decimal(100000)
+            for key in (
+                "e0",
+                "week_e0",
+                "month_e0",
+                "day_flow_base",
+                "week_flow_base",
+                "month_flow_base",
+                "cumulative_external_flows",
+                "equity",
+            )
+        }
+    )
+    portfolio = portfolio.model_copy(update={"cash": Decimal(100000)})
+    connection.execute(ledger_accounts.insert().values(id="account"))
+    connection.execute(
+        session_snapshots.insert().values(
+            account_id="account",
+            observation_id="opening",
+            sequence=1,
+            fingerprint="fixture",
+            observation={},
+            state=session.model_dump(mode="json"),
+        )
+    )
+    publish_capacity(connection, "account", portfolio, {"A": assumption}, policy, stress_policy)
+    assert reserve(connection, "account", "queued", proposal, terms, now=NOW).status == "reserved"
+    assert entry_dispatch_allowed(connection, "account", "queued", now=NOW)
+    connection.commit()
+    reference = ReferenceBundle(
+        source="fixture",
+        published_at=NOW,
+        coverage_start=NOW.date(),
+        coverage_end=NOW.date(),
+        aliases=(),
+        days=(
+            ExchangeDay(
+                session_date=NOW.date(),
+                status="open",
+                reason="fixture",
+                opens_at=NOW - timedelta(hours=1),
+                closes_at=NOW + timedelta(hours=5),
+            ),
+        ),
+    )
+    observation = EquityObservation(
+        observation_id="loss",
+        observed_at=NOW + timedelta(seconds=1),
+        equity=Decimal(100000 - loss),
+        cumulative_external_flows=100000,
+        reconciled=True,
+        fresh_marks=True,
+    )
+    state = persist_observation(connection, "account", observation, reference)
+    connection.commit()
+    row = connection.execute(select(daily_controls)).mappings().one()
+    assert row["triggered"] == triggered
+    if not triggered:
+        assert connection.execute(select(stop_intents)).first() is None
+        return
+    assert Decimal(row["payload"]["overshoot"]) == overshoot
+    assert {row.kind for row in connection.execute(select(stop_intents))} == {
+        "CANCEL_ENTRY",
+        "LIQUIDATE_ACCOUNT",
+    }
+    assert not entry_dispatch_allowed(connection, "account", "queued", now=observation.observed_at)
+    assert (
+        reserve(
+            connection, "account", "queued", proposal, terms, now=observation.observed_at
+        ).status
+        == "rejected"
+    )
+    connection.commit()
+    with pytest.raises(ValueError, match="frozen"), connection.begin():
+        bind_daily_limit(connection, "account", state, Decimal(2))
+    for operation in (daily_controls.update().values(triggered=False), daily_controls.delete()):
+        with pytest.raises(DBAPIError), connection.begin():
+            connection.execute(operation)
+    rebound = observation.model_copy(
+        update={
+            "observation_id": "rebound",
+            "observed_at": NOW + timedelta(seconds=2),
+            "equity": Decimal(100100),
+        }
+    )
+    persist_observation(connection, "account", rebound, reference)
+    funding = rebound.model_copy(
+        update={
+            "observation_id": "deposit",
+            "observed_at": NOW + timedelta(seconds=3),
+            "equity": Decimal(200100),
+            "cumulative_external_flows": Decimal(200000),
+        }
+    )
+    persist_observation(connection, "account", funding, reference)
+    connection.commit()
+    assert not entry_dispatch_allowed(connection, "account", "queued", now=funding.observed_at)
+    assert connection.execute(select(daily_controls.c.payload)).scalar_one() == row["payload"]
+    assert len(connection.execute(select(stop_intents)).all()) == 2
+
+
 @pytest.mark.parametrize("limiting", ["risk", "cash"])
 def test_concurrent_reservations_and_confirmed_release(database, limiting):
     from concurrent.futures import ThreadPoolExecutor
@@ -359,7 +485,7 @@ def test_empty_migration_and_data_preserving_upgrade(database):
     command.upgrade(config, "head")
     command.upgrade(config, "head")  # Re-running migration is idempotent.
     assert connection.scalar(select(instruments.c.symbol)) == "SYNTHETIC"
-    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0005"
+    assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0006"
     assert compare_metadata(MigrationContext.configure(connection), metadata) == []
 
 

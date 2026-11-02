@@ -130,3 +130,24 @@ risk_reservations = Table(
     Column("terminal_evidence", JSON),
     CheckConstraint("status IN ('active', 'released')", name="ck_reservation_status"),
 )
+
+daily_controls = Table(
+    "daily_controls",
+    metadata,
+    Column("account_id", ForeignKey("ledger_accounts.id"), primary_key=True),
+    Column("session_date", Date, primary_key=True),
+    Column("percentage", Numeric(20, 10), nullable=False),
+    Column("e0", Numeric(30, 6), nullable=False),
+    Column("triggered", Boolean, nullable=False),
+    Column("payload", JSON, nullable=False),
+    CheckConstraint("percentage > 0 AND percentage <= 100 AND e0 > 0", name="ck_daily_policy"),
+)
+stop_intents = Table(
+    "stop_intents",
+    metadata,
+    Column("account_id", ForeignKey("ledger_accounts.id"), primary_key=True),
+    Column("session_date", Date, primary_key=True),
+    Column("target", String(160), primary_key=True),
+    Column("kind", String(32), nullable=False),
+    Column("payload", JSON, nullable=False),
+)

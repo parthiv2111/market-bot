@@ -9,6 +9,7 @@ from pydantic import Field, model_validator
 from sqlalchemy import Connection, select
 from sqlalchemy.dialects.postgresql import insert
 
+from prediction_bot.daily_breaker import evaluate_daily_loss
 from prediction_bot.data_quality import _aware
 from prediction_bot.ledger import Money
 from prediction_bot.persistence.schema import ledger_accounts, session_snapshots
@@ -222,4 +223,5 @@ def persist_observation(
             state=state.model_dump(mode="json"),
         )
     )
+    evaluate_daily_loss(connection, account_id, state)
     return state
